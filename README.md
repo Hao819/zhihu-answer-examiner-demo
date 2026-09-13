@@ -16,6 +16,21 @@ npm run dev
 
 知乎直答综合说明与知乎搜索摘要会在界面中分开标注；直答没有返回可验证链接时，不会伪造“查看原文”链接。
 
+## 项目结构
+
+```text
+index.html                 静态入口
+app.js                     前端状态机与页面渲染
+styles.css                 页面样式与响应式布局
+server.js                  Node 后端、知乎 CLI 发现与 API 路由
+src/zhihu.js               搜索/直答响应标准化与来源绑定
+src/core.js                主题、评分统计（fixture 仅供测试使用）
+test/core.test.js          纯函数与响应标准化测试
+docs/                      产品方案与宣传素材
+```
+
+当前项目保持无第三方依赖，适合 Demo 快速启动。`app.js` 和 `server.js` 暂时采用单文件结构，便于路演部署；如果继续增加历史报告、登录、缓存或更多知乎能力，再拆分为 `src/client/`、`src/server/` 和独立路由模块。
+
 ## 测试
 
 ```bash
