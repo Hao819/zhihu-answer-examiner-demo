@@ -1,0 +1,9 @@
+node_modules/
+.playwright-mcp/
+.box-agent/
+.box-agent-scratch/
+*.log
+.DS_Store
+
+# Agent 会话工作目录，不属于项目源码
+2026-09-13-25da8b41/
