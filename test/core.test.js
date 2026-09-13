@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { FIXTURES, evaluate, score, counts } from '../src/core.js';
-import { normalizeSearchResponse, attachSources, filterByTopic, relevance, tokenize, sourceStats, SOURCE_TYPE_SEARCH, SOURCE_TYPE_FIXTURE } from '../src/zhihu.js';
+import { normalizeSearchResponse, attachSources, filterByTopic, relevance, tokenize, sourceStats, buildSearchQuery, mergeSources, SOURCE_TYPE_SEARCH, SOURCE_TYPE_FIXTURE, SOURCE_TYPE_DIRECT, parseDirectAnswerContent, normalizeDirectEvaluation } from '../src/zhihu.js';
 
 const TOPIC = 'AI 会替代初级程序员吗？';
 
@@ -91,4 +91,21 @@ test('相关性计算对跑题文本返回 0', () => {
   assert.equal(relevance(query, tokenize('沙丁鱼在日语里叫鰯')), 0);
   assert.ok(relevance(query, tokenize('AI 会替代初级程序员吗')) > 0.5);
   assert.equal(filterByTopic(NOISE_SOURCES, '数据分析应该怎么入门？').length, 0);
+});
+
+test('知乎直答 JSON 可解析并标准化为评估知识点', () => {
+  const payload = { choices: [{ message: { content: '```json\n{"items":[{"status":"correction","title":"任务边界","match_terms":["规则清晰","自动化"],"user_claim":"我认为复杂工作最先被替代","feedback":"方向需要修正","quote_or_summary":"知乎资料显示标准化任务更易自动化","repair_prompt":"请补讲适用条件"}]}\n```' } }] };
+  const parsed = parseDirectAnswerContent(payload.choices[0].message.content);
+  assert.equal(parsed.items.length, 1);
+  const points = normalizeDirectEvaluation(payload);
+  assert.equal(points[0].status, 'correction');
+  assert.equal(points[0].sourceType, SOURCE_TYPE_DIRECT);
+  assert.deepEqual(points[0].matchTerms, ['规则清晰', '自动化']);
+});
+
+test('直答知识点没有匹配搜索来源时仍保留直答标签', () => {
+  const payload = { choices: [{ message: { content: '{"items":[{"status":"missing","title":"完全不同的知识点","match_terms":["量子力学"],"feedback":"证据不足"}]}' } }] };
+  const points = attachSources(normalizeDirectEvaluation(payload), RELEVANT_SOURCES, { topic: TOPIC });
+  assert.equal(points[0].sourceType, SOURCE_TYPE_DIRECT);
+  assert.equal(points[0].url, '');
 });

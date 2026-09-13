@@ -15,7 +15,44 @@ const aiPoints = [
   { id: 'view', matchTerms: ['行业', '团队', '速度', '分歧', '影响'], label: '观点差异', status: 'difference', title: '社区对变化速度存在分歧', user: '我认为变化会发生，但速度取决于行业和团队。', feedback: '这是有依据的观点差异。把行业、团队成熟度等条件说出来，会让结论更可靠。', quote: '同一工具在不同组织里的边际收益，取决于流程、数据和风险容忍度。', sourceTitle: 'AI 对软件行业的影响会有多大？', author: '黄海均', url: 'https://www.zhihu.com/question/611025845', prompt: '请补充：哪些行业或团队条件会让变化更快或更慢？' }
 ];
 
-export const FIXTURES = { 'ai-coder': aiPoints, 'data-start': aiPoints.map((p, i) => ({ ...p, id: `data-${i}`, title: p.title.replace('AI', '数据分析'), label: i % 2 ? '方法' : p.label })), 'remote-work': aiPoints.map((p, i) => ({ ...p, id: `remote-${i}`, title: p.title.replace(/AI|程序员/g, '远程工作'), label: i % 2 ? '实践' : p.label })) };
+// 派生主题沿用 ai-coder 的知识点骨架，但检索匹配词必须按各自领域替换，
+// 否则会拿「代码生成 / 岗位」这类词去匹配数据分析、远程工作的来源。
+const DERIVED_TERMS = {
+  'data-start': [
+    ['数据分析', '入门', '基础', '学习', '路径'],
+    ['业务', '问题', '需求', '场景', '落地'],
+    ['沟通', '汇报', '表达', '协作', '结论'],
+    ['效率', '工具', 'Excel', 'SQL', 'Python'],
+    ['统计', '指标', '口径', '定义', '边界'],
+    ['学习', '原理', '统计', '基础', '成长'],
+    ['结论', '负责', '误读', '风险', '验证'],
+    ['行业', '团队', '方向', '分歧', '差异']
+  ],
+  'remote-work': [
+    ['远程办公', '自律', '节奏', '时间管理', '安排'],
+    ['沟通', '异步', '协作', '信息同步', '团队'],
+    ['会议', '表达', '文档', '协作', '反馈'],
+    ['效率', '专注', '工具', '产出', '干扰'],
+    ['边界', '加班', '时间', '定义', '分离'],
+    ['习惯', '学习', '成长', '自驱', '基础'],
+    ['责任', '交付', '结果', '信任', '考核'],
+    ['行业', '团队', '文化', '分歧', '差异']
+  ]
+};
+
+const derive = (prefix, terms, mapTitle, mapLabel) => aiPoints.map((p, i) => ({
+  ...p,
+  id: `${prefix}-${i}`,
+  title: mapTitle(p.title),
+  label: mapLabel(p.label, i),
+  matchTerms: terms[i] || p.matchTerms
+}));
+
+export const FIXTURES = {
+  'ai-coder': aiPoints,
+  'data-start': derive('data', DERIVED_TERMS['data-start'], (t) => t.replace('AI', '数据分析'), (l, i) => (i % 2 ? '方法' : l)),
+  'remote-work': derive('remote', DERIVED_TERMS['remote-work'], (t) => t.replace(/AI|程序员/g, '远程工作'), (l, i) => (i % 2 ? '实践' : l))
+};
 
 export function evaluate(points, answer, isReteach = false) {
   const text = answer.trim();

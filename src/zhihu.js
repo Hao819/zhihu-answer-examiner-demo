@@ -55,14 +55,32 @@ export function relevance(queryTokens, docTokens) {
   return hit / queryTokens.size;
 }
 
-function sourceTokens(source) {
-  // 摘要过长会稀释判断，取前 200 字参与匹配即可。
-  return tokenize(`${source.title || ''} ${(source.quote || '').slice(0, 200)}`);
+/** 命中的查询词个数，用于约束「词条少时靠单个词侥幸达标」。 */
+export function hitCount(queryTokens, docTokens) {
+  let hit = 0;
+  for (const token of queryTokens) if (docTokens.has(token)) hit += 1;
+  return hit;
 }
 
+// 除覆盖率外，至少要命中这么多查询 token 才认为来源真正谈到了该论点。
+export const MIN_HIT_TOKENS = 2;
+
+// 知乎摘要常在 300~1100 字，论点性内容多出现在中后段。
+// 旧实现只取前 200 字，导致真实相关的回答匹配不上而被误降级。
+const SOURCE_WINDOW = 1200;
+
+function sourceTokens(source) {
+  return tokenize(`${source.title || ''} ${(source.quote || '').slice(0, SOURCE_WINDOW)}`);
+}
+
+/**
+ * 知识点查询词：以 matchTerms 为准。
+ * title 是「结论式长句」，把它并入查询会引入大量与论点无关的 bigram，
+ * 稀释覆盖率并压低真实相关来源的得分（实测绑定率 0/8 vs 7/8）。
+ */
 function pointQuery(point) {
   const terms = Array.isArray(point.matchTerms) ? point.matchTerms.join(' ') : '';
-  return tokenize(`${point.title || ''} ${point.label || ''} ${terms}`);
+  return tokenize(terms || `${point.title || ''} ${point.label || ''}`);
 }
 
 /**
@@ -91,12 +109,10 @@ export function attachSources(points, sources = [], options = {}) {
     ? filterByTopic(sources, topicText, options.topicThreshold ?? TOPIC_THRESHOLD)
     : sources.map((source) => ({ source, topicRelevance: 1 }));
 
-  const fallbackAll = () => points.map((point) => ({
-    ...point,
-    sourceType: SOURCE_TYPE_FIXTURE,
-    sourceFallback: true,
-    sourceRelevance: 0
-  }));
+  const fallbackPoint = (point) => point.sourceType === SOURCE_TYPE_DIRECT
+    ? { ...point, sourceFallback: false, sourceRelevance: 0 }
+    : { ...point, sourceType: SOURCE_TYPE_FIXTURE, sourceFallback: true, sourceRelevance: 0 };
+  const fallbackAll = () => points.map(fallbackPoint);
 
   if (!candidates.length) return fallbackAll();
 
@@ -104,8 +120,13 @@ export function attachSources(points, sources = [], options = {}) {
   points.forEach((point, pointIndex) => {
     const query = pointQuery(point);
     candidates.forEach((candidate, sourceIndex) => {
-      const pointRelevance = relevance(query, sourceTokens(candidate.source));
-      if (pointRelevance >= pointThreshold) pairs.push({ pointIndex, sourceIndex, pointRelevance });
+      const docTokens = sourceTokens(candidate.source);
+      const pointRelevance = relevance(query, docTokens);
+      // 双重约束：覆盖率达标，且实际命中足够多的查询词，
+      // 避免 matchTerms 较少时单个词侥幸让整条来源过关。
+      const hits = hitCount(query, docTokens);
+      const minHits = Math.min(MIN_HIT_TOKENS, query.size);
+      if (pointRelevance >= pointThreshold && hits >= minHits) pairs.push({ pointIndex, sourceIndex, pointRelevance });
     });
   });
 
@@ -125,7 +146,7 @@ export function attachSources(points, sources = [], options = {}) {
   return points.map((point, pointIndex) => {
     const pair = assigned.get(pointIndex);
     if (!pair) {
-      return { ...point, sourceType: SOURCE_TYPE_FIXTURE, sourceFallback: true, sourceRelevance: 0 };
+      return fallbackPoint(point);
     }
     const { source } = candidates[pair.sourceIndex];
     return {
@@ -147,4 +168,96 @@ export function attachSources(points, sources = [], options = {}) {
 export function sourceStats(points) {
   const matched = points.filter((point) => point.sourceType === SOURCE_TYPE_SEARCH).length;
   return { total: points.length, matched, fallback: points.length - matched };
+}
+
+/**
+ * 构造补充检索 query：主题 + 少量高区分度 matchTerms。
+ *
+ * 实测表明，把全部 matchTerms 堆进 query 会把语义搜索带偏
+ * （远程工作主题贴题结果 6 条 -> 3 条），因此这里只取有限个词，
+ * 且仅作为「主题检索候选不足」时的补充，不替代主题检索。
+ */
+export function buildSearchQuery(topic, points = [], maxTerms = 3) {
+  const topicTokens = tokenize(topic);
+  const picked = [];
+  for (const point of points) {
+    for (const term of point.matchTerms || []) {
+      if (picked.length >= maxTerms) break;
+      // 已被主题覆盖的词不再重复，短词区分度低也跳过。
+      const termTokens = tokenize(term);
+      const covered = [...termTokens].every((t) => topicTokens.has(t));
+      if (term.length >= 2 && !covered && !picked.includes(term)) picked.push(term);
+    }
+    if (picked.length >= maxTerms) break;
+  }
+  return picked.length ? `${topic} ${picked.join(' ')}` : topic;
+}
+
+/** 合并多次检索结果并按 url 去重，保持先到先得的顺序。 */
+export function mergeSources(...lists) {
+  const seen = new Set();
+  const merged = [];
+  for (const list of lists) {
+    for (const item of list || []) {
+      if (!item?.url || seen.has(item.url)) continue;
+      seen.add(item.url);
+      merged.push(item);
+    }
+  }
+  return merged;
+}
+
+export const SOURCE_TYPE_DIRECT = '知乎直答综合说明';
+
+/** 从知乎直答的 JSON/SSE 外壳中提取模型返回的 JSON 对象。 */
+export function parseDirectAnswerContent(content) {
+  const text = String(content ?? '').trim().replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/i, '').trim();
+  const start = text.indexOf('{');
+  const end = text.lastIndexOf('}');
+  if (start < 0 || end <= start) throw new Error('知乎直答未返回 JSON');
+  return JSON.parse(text.slice(start, end + 1));
+}
+
+function directStatus(value) {
+  const status = String(value ?? '').toLowerCase();
+  if (status === 'accurate' || status.includes('准确') || status.includes('覆盖')) return 'accurate';
+  if (status === 'correction' || status.includes('修正') || status.includes('错误')) return 'correction';
+  if (status === 'missing' || status.includes('遗漏') || status.includes('缺少')) return 'missing';
+  if (status === 'difference' || status.includes('差异') || status.includes('分歧')) return 'difference';
+  return 'difference';
+}
+
+function directTerms(item) {
+  const raw = item.match_terms || item.matchTerms || item['关键词'] || item['关键条件'] || '';
+  const terms = Array.isArray(raw) ? raw : String(raw).split(/[，、,；;|\\/]/);
+  return terms.map((term) => String(term).trim()).filter((term) => term.length >= 2).slice(0, 8);
+}
+
+/** 将知乎直答的结构化考官结果统一为前端知识点字段。 */
+export function normalizeDirectEvaluation(payload) {
+  const content = payload?.choices?.[0]?.message?.content || payload?.Data?.Content || payload?.data?.content || '';
+  const parsed = typeof content === 'string' ? parseDirectAnswerContent(content) : content;
+  const rawItems = parsed.items || parsed.knowledge_points || parsed['知识点'] || [];
+  if (!Array.isArray(rawItems)) return [];
+  return rawItems.slice(0, 10).map((item, index) => {
+    const title = item.title || item.point || item['知识点'] || `关键知识点 ${index + 1}`;
+    const terms = directTerms(item);
+    return {
+      id: String(item.id || `direct-${index + 1}`),
+      matchTerms: terms.length ? terms : [title],
+      label: item.label || item.category || '知乎直答考点',
+      status: directStatus(item.status || item['状态'] || item.verdict),
+      title,
+      user: item.user_claim || item.userClaim || item['用户原话'] || '（直答未返回原句）',
+      feedback: item.feedback || item.assessment || item.explanation || item['考官点评'] || '知乎直答已完成判断。',
+      quote: item.quote_or_summary || item.quote || item['来源摘要'] || item.summary || '知乎直答综合说明，具体证据请查看绑定的知乎搜索来源。',
+      sourceTitle: '知乎直答综合说明',
+      author: '知乎直答',
+      url: '',
+      sourceType: SOURCE_TYPE_DIRECT,
+      sourceFallback: false,
+      sourceRelevance: 0,
+      prompt: item.repair_prompt || item.repairPrompt || item['补讲提示'] || ''
+    };
+  });
 }
