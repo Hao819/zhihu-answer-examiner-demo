@@ -4,7 +4,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
-import { normalizeSearchResponse, normalizeDirectEvaluation } from './src/zhihu.js';
+import { normalizeSearchResponse, normalizeDirectEvaluation, normalizeLearningGuide } from './src/zhihu.js';
 
 const execFileAsync = promisify(execFile);
 const root = path.dirname(fileURLToPath(import.meta.url));
@@ -72,6 +72,20 @@ async function evaluateWithZhida(topic, answer, focus = '') {
   return items;
 }
 
+async function learnWithZhida(topic) {
+  const prompt = [
+    '你是“答主考官”的入门教练。请使用知乎直答内部检索到的知乎资料，为完全不了解该主题的用户生成一份短小、可行动的入门指南。',
+    '只输出严格 JSON，不要 Markdown 代码围栏，不要编造作者、链接、赞数或逐字引文。',
+    `主题：${topic}`,
+    '格式：{"overview":"用通俗语言说明这是什么以及为什么重要","key_points":[{"title":"核心概念","explanation":"一句话解释","example":"一个具体例子","match_terms":["用于后续检索匹配的关键词"]}],"misconceptions":["常见误区"],"starter_question":"一个用户可以用自己的话回答的自测问题"}',
+    '要求：返回 5 到 8 个由浅入深的关键点；每个关键点都要有 explanation；优先讲定义、判断框架、条件和例子；资料不足时明确说待验证，不要武断下结论。'
+  ].join('\n');
+  const { stdout } = await execFileAsync(cli, ['answer', '--query', prompt, '--model', process.env.ZHIHU_ANSWER_MODEL || 'zhida-thinking-1p5', '--output', 'json'], { env: process.env, timeout: 60000, maxBuffer: 8 * 1024 * 1024, windowsHide: true });
+  const guide = normalizeLearningGuide(JSON.parse(stdout));
+  if (!guide) throw new Error('知乎直答未返回可用入门指南');
+  return guide;
+}
+
 function sendJson(res, status, data) { res.writeHead(status, { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store' }); res.end(JSON.stringify(data)); }
 function safeFile(urlPath) { const clean = decodeURIComponent(urlPath === '/' ? '/index.html' : urlPath).replace(/^[/\\]+/, ''); const target = path.resolve(root, clean); const relative = path.relative(root, target); return relative && !relative.startsWith('..') && !path.isAbsolute(relative) ? target : null; }
 
@@ -109,6 +123,24 @@ const server = http.createServer(async (req, res) => {
         } catch (error) {
           console.warn(`[zhihu] 直答评估失败：${error.code || error.message}`);
           return sendJson(res, 502, { error: 'zhihu_answer_failed', message: '知乎直答暂时不可用，请稍后重试。' });
+        }
+      } catch { return sendJson(res, 400, { error: 'invalid JSON body' }); }
+    });
+    return;
+  }
+  if (req.method === 'POST' && req.url === '/api/learn') {
+    let body = '';
+    req.on('data', (chunk) => { body += chunk; if (body.length > 5000) req.destroy(); });
+    req.on('end', async () => {
+      try {
+        const topic = String(JSON.parse(body).topic || '').trim();
+        if (topic.length < 2 || topic.length > 120) return sendJson(res, 400, { error: 'topic must be 2-120 characters' });
+        try {
+          const guide = await learnWithZhida(topic);
+          return sendJson(res, 200, { guide, source: 'zhihu-answer', fallback: false });
+        } catch (error) {
+          console.warn(`[zhihu] 入门指南失败：${error.code || error.message}`);
+          return sendJson(res, 502, { error: 'zhihu_learning_failed', message: '知乎直答入门指南暂时不可用，请稍后重试。' });
         }
       } catch { return sendJson(res, 400, { error: 'invalid JSON body' }); }
     });

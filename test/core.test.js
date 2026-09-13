@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { FIXTURES, evaluate, score, counts } from '../src/core.js';
-import { normalizeSearchResponse, attachSources, filterByTopic, relevance, tokenize, sourceStats, buildSearchQuery, mergeSources, SOURCE_TYPE_SEARCH, SOURCE_TYPE_FIXTURE, SOURCE_TYPE_DIRECT, parseDirectAnswerContent, normalizeDirectEvaluation } from '../src/zhihu.js';
+import { normalizeSearchResponse, attachSources, filterByTopic, relevance, tokenize, sourceStats, buildSearchQuery, mergeSources, SOURCE_TYPE_SEARCH, SOURCE_TYPE_FIXTURE, SOURCE_TYPE_DIRECT, parseDirectAnswerContent, normalizeDirectEvaluation, normalizeLearningGuide } from '../src/zhihu.js';
 
 const TOPIC = 'AI 会替代初级程序员吗？';
 
@@ -108,4 +108,16 @@ test('直答知识点没有匹配搜索来源时仍保留直答标签', () => {
   const points = attachSources(normalizeDirectEvaluation(payload), RELEVANT_SOURCES, { topic: TOPIC });
   assert.equal(points[0].sourceType, SOURCE_TYPE_DIRECT);
   assert.equal(points[0].url, '');
+});
+
+test('知乎直答入门指南可标准化为零基础学习地图', () => {
+  const payload = { choices: [{ message: { content: JSON.stringify({ overview: '先理解基本概念。', key_points: [
+    { title: '定义', explanation: '这是一个定义。', example: '例子', match_terms: ['定义'] },
+    { title: '框架', explanation: '这是一个框架。', match_terms: ['框架'] },
+    { title: '边界', explanation: '这是一个边界。', match_terms: ['边界'] }
+  ], misconceptions: ['不要把工具当结论'], starter_question: '你能解释定义吗？' }) } }] };
+  const guide = normalizeLearningGuide(payload);
+  assert.equal(guide.keyPoints.length, 3);
+  assert.equal(guide.sourceType, SOURCE_TYPE_DIRECT);
+  assert.equal(guide.starterQuestion, '你能解释定义吗？');
 });

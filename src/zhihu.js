@@ -209,6 +209,33 @@ export function mergeSources(...lists) {
 
 export const SOURCE_TYPE_DIRECT = '知乎直答综合说明';
 
+/** 从知乎直答返回的 JSON 中提取适合零基础用户的入门指南。 */
+export function normalizeLearningGuide(payload) {
+  const content = payload?.choices?.[0]?.message?.content || payload?.Data?.Content || payload?.data?.content || '';
+  const parsed = typeof content === 'string' ? parseDirectAnswerContent(content) : content;
+  const rawPoints = parsed.key_points || parsed.keyPoints || parsed['关键知识点'] || [];
+  if (!parsed || typeof parsed !== 'object' || !Array.isArray(rawPoints) || rawPoints.length < 3) return null;
+  const keyPoints = rawPoints.slice(0, 8).map((point, index) => ({
+    id: `guide-${index + 1}`,
+    title: String(point.title || point.point || point['知识点'] || `关键点 ${index + 1}`).trim(),
+    explanation: String(point.explanation || point.description || point['解释'] || '').trim(),
+    example: String(point.example || point['例子'] || '').trim(),
+    matchTerms: directTerms(point)
+  })).filter((point) => point.title && point.explanation);
+  if (keyPoints.length < 3) return null;
+  return {
+    overview: String(parsed.overview || parsed.summary || parsed['入门概览'] || '').trim(),
+    keyPoints,
+    misconceptions: (parsed.misconceptions || parsed.common_misconceptions || parsed['常见误区'] || [])
+      .map((item) => String(item).trim()).filter(Boolean).slice(0, 5),
+    starterQuestion: String(parsed.starter_question || parsed.starterQuestion || parsed['自测问题'] || '').trim(),
+    sourceType: SOURCE_TYPE_DIRECT,
+    sourceTitle: '知乎直答入门指南',
+    author: '知乎直答',
+    url: ''
+  };
+}
+
 /** 从知乎直答的 JSON/SSE 外壳中提取模型返回的 JSON 对象。 */
 export function parseDirectAnswerContent(content) {
   const text = String(content ?? '').trim().replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/i, '').trim();
