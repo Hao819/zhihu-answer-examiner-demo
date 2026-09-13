@@ -1,6 +1,6 @@
 # 答主考官 Demo
 
-一个按 [`docs/答主考官-Demo设计方案.md`](docs/答主考官-Demo设计方案.md) 实现的实时 MVP。核心闭环是：选题 → 先讲述 → 知乎搜索与知乎直答比对 → 补讲复测 → 掌握度报告与知识卡片。
+一个按 [`docs/答主考官-Demo设计方案.md`](docs/答主考官-Demo设计方案.md) 实现的实时 MVP。核心闭环是：选题 → 先讲述 → 知乎搜索与知乎直答比对 → 补讲复测 → 掌握度报告与知识卡片。报告会保存在当前浏览器的 `localStorage` 中，并可从“历史报告”查看、删除和清空。
 
 ## 本地运行
 
@@ -40,6 +40,7 @@ app.js                     前端状态机与页面渲染
 styles.css                 页面样式与响应式布局
 server.js                  Node 后端、知乎 CLI 发现与 API 路由
 src/zhihu.js               搜索/直答响应标准化与来源绑定
+src/history.js             浏览器历史报告的数据结构与存取策略
 src/core.js                主题、评分统计（fixture 仅供测试使用）
 test/core.test.js          纯函数与响应标准化测试
 docs/                      产品方案与宣传素材

@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { FIXTURES, evaluate, score, counts } from '../src/core.js';
 import { normalizeSearchResponse, attachSources, filterByTopic, relevance, tokenize, sourceStats, buildSearchQuery, mergeSources, SOURCE_TYPE_SEARCH, SOURCE_TYPE_FIXTURE, SOURCE_TYPE_DIRECT, parseDirectAnswerContent, normalizeDirectEvaluation, normalizeLearningGuide } from '../src/zhihu.js';
+import { createReportRecord, readHistory, upsertHistory, removeHistory, MAX_HISTORY_ITEMS } from '../src/history.js';
 
 const TOPIC = 'AI 会替代初级程序员吗？';
 
@@ -120,4 +121,25 @@ test('知乎直答入门指南可标准化为零基础学习地图', () => {
   assert.equal(guide.keyPoints.length, 3);
   assert.equal(guide.sourceType, SOURCE_TYPE_DIRECT);
   assert.equal(guide.starterQuestion, '你能解释定义吗？');
+});
+
+test('历史报告记录包含分数与必要的安全字段', () => {
+  const record = createReportRecord({ topic: { id: 'ai-coder', title: TOPIC, tag: '职业与 AI' }, answer: '我的讲述', before: 25, points: FIXTURES['ai-coder'].slice(0, 2), createdAt: 1700000000000, id: 'report-test' });
+  assert.equal(record.id, 'report-test');
+  assert.equal(record.after, 0);
+  assert.equal(record.points.length, 2);
+  assert.equal(record.points[0].sourceType, '');
+  assert.equal(record.topic.title, TOPIC);
+});
+
+test('历史报告可处理损坏 JSON、去重并限制数量', () => {
+  assert.deepEqual(readHistory('{bad json'), []);
+  let records = [];
+  for (let i = 0; i < MAX_HISTORY_ITEMS + 3; i += 1) records = upsertHistory(records, { id: `r-${i}`, topic: { title: `主题 ${i}` }, points: [] });
+  assert.equal(records.length, MAX_HISTORY_ITEMS);
+  assert.equal(records[0].id, `r-${MAX_HISTORY_ITEMS + 2}`);
+  records = upsertHistory(records, { id: 'r-10', topic: { title: '更新主题' }, points: [] });
+  assert.equal(records[0].id, 'r-10');
+  assert.equal(records.filter((item) => item.id === 'r-10').length, 1);
+  assert.equal(removeHistory(records, 'r-10').some((item) => item.id === 'r-10'), false);
 });
