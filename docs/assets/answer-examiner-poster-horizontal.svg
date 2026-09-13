@@ -1,0 +1,84 @@
+<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="1920" height="1080" viewBox="0 0 1920 1080">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#F8FBFF"/>
+      <stop offset="0.58" stop-color="#FFFFFF"/>
+      <stop offset="1" stop-color="#EAF4FF"/>
+    </linearGradient>
+    <linearGradient id="blue" x1="0" y1="0" x2="1" y2="1">
+      <stop stop-color="#056DE8"/><stop offset="1" stop-color="#2B8CFF"/>
+    </linearGradient>
+    <filter id="shadow" x="-30%" y="-30%" width="160%" height="180%">
+      <feDropShadow dx="0" dy="18" stdDeviation="25" flood-color="#075CAD" flood-opacity="0.12"/>
+    </filter>
+    <filter id="soft" x="-30%" y="-30%" width="160%" height="180%">
+      <feDropShadow dx="0" dy="10" stdDeviation="16" flood-color="#1F2329" flood-opacity="0.08"/>
+    </filter>
+    <clipPath id="mascotClip"><rect x="1130" y="144" width="540" height="742" rx="54"/></clipPath>
+  </defs>
+
+  <rect width="1920" height="1080" fill="url(#bg)"/>
+  <circle cx="1745" cy="120" r="280" fill="#DCEEFF" opacity="0.62"/>
+  <circle cx="1535" cy="960" r="390" fill="#EDF6FF"/>
+  <path d="M0 900 C340 790 560 1050 930 930 C1230 832 1510 810 1920 915 L1920 1080 L0 1080Z" fill="#056DE8" opacity="0.035"/>
+
+  <g transform="translate(120 86)">
+    <rect width="56" height="56" rx="16" fill="#056DE8"/>
+    <text x="28" y="39" text-anchor="middle" font-family="Microsoft YaHei, PingFang SC, sans-serif" font-size="30" font-weight="800" fill="white">知</text>
+    <text x="78" y="38" font-family="Microsoft YaHei, PingFang SC, sans-serif" font-size="26" font-weight="700" fill="#1F2329">知乎 · 答主考官</text>
+  </g>
+
+  <g transform="translate(120 252)">
+    <rect width="208" height="48" rx="24" fill="#E7F2FF"/>
+    <circle cx="26" cy="24" r="7" fill="#056DE8"/>
+    <text x="45" y="32" font-family="Microsoft YaHei, PingFang SC, sans-serif" font-size="20" font-weight="700" fill="#056DE8">主动回忆学习工具</text>
+
+    <text y="145" font-family="Microsoft YaHei, PingFang SC, sans-serif" font-size="86" font-weight="900" fill="#1F2329" letter-spacing="-4">你讲一遍，</text>
+    <text y="250" font-family="Microsoft YaHei, PingFang SC, sans-serif" font-size="86" font-weight="900" fill="#056DE8" letter-spacing="-4">知乎来挑错</text>
+    <text y="320" font-family="Microsoft YaHei, PingFang SC, sans-serif" font-size="28" fill="#5D6673">先主动表达，再用真实社区观点检验理解</text>
+
+    <g transform="translate(0 390)" font-family="Microsoft YaHei, PingFang SC, sans-serif">
+      <g><rect width="120" height="56" rx="14" fill="#FFFFFF" stroke="#DCE3EC"/><text x="60" y="37" text-anchor="middle" font-size="22" font-weight="700" fill="#1F2329">讲述</text></g>
+      <text x="144" y="38" font-size="26" fill="#98A2B3">→</text>
+      <g transform="translate(178)"><rect width="120" height="56" rx="14" fill="#FFFFFF" stroke="#DCE3EC"/><text x="60" y="37" text-anchor="middle" font-size="22" font-weight="700" fill="#1F2329">比对</text></g>
+      <text x="322" y="38" font-size="26" fill="#98A2B3">→</text>
+      <g transform="translate(356)"><rect width="120" height="56" rx="14" fill="#FFFFFF" stroke="#DCE3EC"/><text x="60" y="37" text-anchor="middle" font-size="22" font-weight="700" fill="#1F2329">补讲</text></g>
+      <text x="500" y="38" font-size="26" fill="#98A2B3">→</text>
+      <g transform="translate(534)"><rect width="140" height="56" rx="14" fill="#EAF7F0" stroke="#BDE8D1"/><text x="70" y="37" text-anchor="middle" font-size="22" font-weight="700" fill="#168454">掌握</text></g>
+    </g>
+
+    <g transform="translate(0 512)">
+      <text y="42" font-family="Arial, sans-serif" font-size="48" font-weight="800" fill="#98A2B3">72%</text>
+      <path d="M132 24 H245" stroke="#056DE8" stroke-width="7" stroke-linecap="round"/><path d="M225 7 L247 24 L225 41" fill="none" stroke="#056DE8" stroke-width="7" stroke-linecap="round" stroke-linejoin="round"/>
+      <text x="280" y="42" font-family="Arial, sans-serif" font-size="56" font-weight="900" fill="#056DE8">91%</text>
+      <text x="425" y="37" font-family="Microsoft YaHei, PingFang SC, sans-serif" font-size="22" fill="#667085">让进步真正可见</text>
+    </g>
+  </g>
+
+  <g filter="url(#shadow)">
+    <rect x="1090" y="118" width="620" height="810" rx="64" fill="#FFFFFF"/>
+    <rect x="1124" y="152" width="552" height="742" rx="48" fill="#F4F9FF"/>
+  </g>
+  <g clip-path="url(#mascotClip)">
+    <image x="1115" y="96" width="580" height="870" preserveAspectRatio="xMidYMid slice" xlink:href="liukanshan-front.jpg"/>
+  </g>
+  <g filter="url(#soft)" font-family="Microsoft YaHei, PingFang SC, sans-serif">
+    <rect x="1002" y="220" width="310" height="104" rx="24" fill="#FFFFFF" stroke="#E6EBF1"/>
+    <rect x="1024" y="242" width="84" height="30" rx="15" fill="#EAF7F0"/>
+    <text x="1066" y="263" text-anchor="middle" font-size="16" font-weight="700" fill="#168454">准确</text>
+    <text x="1024" y="298" font-size="19" font-weight="700" fill="#1F2329">这点讲得很清楚</text>
+
+    <rect x="1460" y="665" width="350" height="128" rx="24" fill="#FFFFFF" stroke="#E6EBF1"/>
+    <rect x="1482" y="687" width="104" height="30" rx="15" fill="#FFF2DC"/>
+    <text x="1534" y="708" text-anchor="middle" font-size="16" font-weight="700" fill="#B76300">关键遗漏</text>
+    <text x="1482" y="748" font-size="19" font-weight="700" fill="#1F2329">这里需要再解释一步</text>
+    <text x="1482" y="775" font-size="16" fill="#667085">证据就在反馈旁边</text>
+  </g>
+
+  <g transform="translate(120 953)" font-family="Microsoft YaHei, PingFang SC, sans-serif">
+    <circle cx="9" cy="9" r="9" fill="#16A05D"/><path d="M5 9 L8 12 L14 6" fill="none" stroke="white" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/>
+    <text x="28" y="16" font-size="21" fill="#5D6673">来源可追溯</text>
+    <circle cx="213" cy="9" r="9" fill="#7C3AED"/><path d="M209 9 H217 M213 5 V13" stroke="white" stroke-width="2" stroke-linecap="round"/>
+    <text x="232" y="16" font-size="21" fill="#5D6673">错误与分歧分开判断</text>
+  </g>
+</svg>
