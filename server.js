@@ -11,17 +11,43 @@ const root = path.dirname(fileURLToPath(import.meta.url));
 const port = Number(process.env.PORT || 4173);
 const cliName = process.platform === 'win32' ? 'zhihu-cli.exe' : 'zhihu-cli';
 
-function resolveCli() {
+function explicitCli() {
   if (process.env.ZHIHU_CLI_PATH) return process.env.ZHIHU_CLI_PATH;
   const home = process.env.ZHIHU_CLI_HOME;
   if (home) {
     const candidate = path.join(home, 'current', cliName);
     if (fs.existsSync(candidate)) return candidate;
   }
-  return cliName;
+  return null;
 }
 
-const cli = resolveCli();
+function skillCandidates() {
+  const candidates = [];
+  if (process.env.ZHIHU_SKILL_DIR) candidates.push(process.env.ZHIHU_SKILL_DIR);
+  if (process.env.USERPROFILE) candidates.push(path.join(process.env.USERPROFILE, '.codex', 'skills', 'zhihu'));
+  if (process.env.HOME) candidates.push(path.join(process.env.HOME, '.codex', 'skills', 'zhihu'));
+  return [...new Set(candidates)];
+}
+
+async function discoverCliFromSkill() {
+  for (const skillDir of skillCandidates()) {
+    const script = process.platform === 'win32' ? path.join(skillDir, 'scripts', 'run.ps1') : path.join(skillDir, 'scripts', 'run.sh');
+    if (!fs.existsSync(script)) continue;
+    try {
+      const command = process.platform === 'win32' ? 'powershell.exe' : 'bash';
+      const args = process.platform === 'win32' ? ['-ExecutionPolicy', 'Bypass', '-File', script, 'status'] : [script, 'status'];
+      const { stdout } = await execFileAsync(command, args, { env: process.env, timeout: 15000, maxBuffer: 1024 * 1024, windowsHide: true });
+      const status = JSON.parse(stdout.trim());
+      const binaryPath = status?.cli?.binary_path;
+      if (binaryPath && fs.existsSync(binaryPath)) return binaryPath;
+    } catch {
+      // status 检查失败时继续尝试下一个候选，不打印可能包含环境诊断的原始输出。
+    }
+  }
+  return null;
+}
+
+const cli = explicitCli() || await discoverCliFromSkill() || cliName;
 
 async function searchZhihu(query) {
   const { stdout } = await execFileAsync(cli, ['search', 'zhihu', '--query', query, '--count', '8'], { env: process.env, timeout: 30000, maxBuffer: 4 * 1024 * 1024, windowsHide: true });
