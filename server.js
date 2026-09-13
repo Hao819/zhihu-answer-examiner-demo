@@ -9,7 +9,19 @@ import { normalizeSearchResponse } from './src/zhihu.js';
 const execFileAsync = promisify(execFile);
 const root = path.dirname(fileURLToPath(import.meta.url));
 const port = Number(process.env.PORT || 4173);
-const cli = process.env.ZHIHU_CLI_PATH || (process.platform === 'win32' ? 'C:\\Users\\hao\\AppData\\Local\\ZhihuCLI\\current\\zhihu-cli.exe' : 'zhihu-cli');
+const cliName = process.platform === 'win32' ? 'zhihu-cli.exe' : 'zhihu-cli';
+
+function resolveCli() {
+  if (process.env.ZHIHU_CLI_PATH) return process.env.ZHIHU_CLI_PATH;
+  const home = process.env.ZHIHU_CLI_HOME;
+  if (home) {
+    const candidate = path.join(home, 'current', cliName);
+    if (fs.existsSync(candidate)) return candidate;
+  }
+  return cliName;
+}
+
+const cli = resolveCli();
 
 async function searchZhihu(query) {
   const { stdout } = await execFileAsync(cli, ['search', 'zhihu', '--query', query, '--count', '8'], { env: process.env, timeout: 30000, maxBuffer: 4 * 1024 * 1024, windowsHide: true });
@@ -31,6 +43,7 @@ const server = http.createServer(async (req, res) => {
           const items = await searchZhihu(query);
           return sendJson(res, 200, { items, source: 'zhihu-search', fallback: false });
         } catch (error) {
+          console.warn(`[zhihu] 搜索失败，已降级为演示资料：${error.code || error.message}`);
           return sendJson(res, 200, { items: [], source: 'offline-fixture', fallback: true, message: '知乎内容暂时不可用，已切换到演示资料' });
         }
       } catch { return sendJson(res, 400, { error: 'invalid JSON body' }); }
@@ -45,4 +58,8 @@ const server = http.createServer(async (req, res) => {
   fs.createReadStream(file).pipe(res);
 });
 
-server.listen(port, () => console.log(`答主考官运行于 http://localhost:${port}`));
+server.listen(port, () => {
+  const resolved = path.isAbsolute(cli) && fs.existsSync(cli);
+  console.log(`答主考官运行于 http://localhost:${port}`);
+  console.log(resolved ? `[zhihu] CLI: ${cli}` : `[zhihu] 未找到可用 CLI（当前解析为 "${cli}"），检索将降级为演示资料。可设置 ZHIHU_CLI_PATH 指定绝对路径。`);
+});

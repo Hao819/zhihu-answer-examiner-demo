@@ -10,7 +10,7 @@
 npm run dev
 ```
 
-然后打开 `http://localhost:4173`。后端会继承当前进程的知乎凭证环境变量，浏览器不会接触 Access Secret。若知乎 CLI 不在默认路径，可设置 `ZHIHU_CLI_PATH`。
+然后打开 `http://localhost:4173`。后端会继承当前进程的知乎凭证环境变量，浏览器不会接触 Access Secret。CLI 路径按以下顺序解析：`ZHIHU_CLI_PATH`（绝对路径，最高优先级）→ 宿主注入的 `ZHIHU_CLI_HOME/current/zhihu-cli(.exe)` → PATH 中的 `zhihu-cli`。启动日志会打印实际使用的 CLI，未找到时会明确提示将降级为演示资料。
 
 搜索接口为 `POST /api/search`，请求体：`{"query":"你的问题"}`。知乎服务异常时会返回 `fallback: true`，前端继续使用离线演示资料。
 
