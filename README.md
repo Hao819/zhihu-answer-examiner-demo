@@ -50,6 +50,15 @@ docs/                      产品方案与宣传素材
 
 ## 公网部署
 
+当前已部署到腾讯云 CloudBase：
+
+- CloudBase 环境：`answer-examiner-demo-d5a933e7f00`
+- HTTP 云函数：`answer-examiner-web`
+- 公网访问地址：[打开答主考官](https://answer-examiner-demo-d5a933e7f00-1414974485.ap-shanghai.app.tcloudbase.com/)
+- 健康检查：[ `/healthz` ](https://answer-examiner-demo-d5a933e7f00-1414974485.ap-shanghai.app.tcloudbase.com/healthz)
+
+函数已配置为公开匿名访问。要启用知乎搜索、知乎直答和复测功能，还需要在 CloudBase 控制台的云函数 `answer-examiner-web` 环境变量中配置 `ZHIHU_ACCESS_SECRET`；不要把该值提交到 Git、前端代码或 ZIP 包中。当前 `/healthz` 返回 200，但在未配置该变量前，知乎相关 API 会返回服务不可用提示。
+
 当前后端通过知乎官方 CLI 调用知乎搜索和知乎直答。部署环境必须能够安装对应平台的 CLI，并配置 `ZHIHU_CLI_PATH` 与服务端凭证。若目标平台不支持安装额外二进制，需要先将这部分改为知乎开放平台 HTTP API 调用。
 
 推荐把仓库连接到支持 Node.js 服务的部署平台，并配置：
