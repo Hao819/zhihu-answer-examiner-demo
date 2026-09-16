@@ -2,6 +2,11 @@ node_modules/
 .env
 .env.*
 !.env.example
+# CloudBase 本地配置（含环境 ID 与凭证），永不提交
+cloudbaserc.local.json
+.cloudbase/
+# 部署探测中间产物，不属于项目源码
+_tmp/
 coverage/
 .playwright-mcp/
 .box-agent/

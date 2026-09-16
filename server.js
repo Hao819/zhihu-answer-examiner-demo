@@ -2,56 +2,96 @@ import http from 'node:http';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { execFile } from 'node:child_process';
-import { promisify } from 'node:util';
 import { normalizeSearchResponse, normalizeDirectEvaluation, normalizeLearningGuide } from './src/zhihu.js';
 
-const execFileAsync = promisify(execFile);
 const root = path.dirname(fileURLToPath(import.meta.url));
-const port = Number(process.env.PORT || 4173);
-const cliName = process.platform === 'win32' ? 'zhihu-cli.exe' : 'zhihu-cli';
 
-function explicitCli() {
-  if (process.env.ZHIHU_CLI_PATH) return process.env.ZHIHU_CLI_PATH;
-  const home = process.env.ZHIHU_CLI_HOME;
-  if (home) {
-    const candidate = path.join(home, 'current', cliName);
-    if (fs.existsSync(candidate)) return candidate;
+// 部署交付标准：读取平台注入的 PORT，本地回退 9000，并监听全部地址。
+const port = Number(process.env.PORT || 9000);
+const host = process.env.HOST || '0.0.0.0';
+
+// 知乎开放平台 HTTP API。凭证只从运行时环境变量读取，不写入源码。
+const ZHIHU_API_BASE = 'https://developer.zhihu.com';
+const ZHIHU_SEARCH_PATH = '/api/v1/content/zhihu_search';
+const ZHIHU_CHAT_PATH = '/v1/chat/completions';
+// 直答模型档位固化为项目内字面量（非凭证配置项，原为默认值）。
+const ANSWER_MODEL = 'zhida-thinking-1p5';
+
+function accessSecret() {
+  return process.env.ZHIHU_ACCESS_SECRET || '';
+}
+
+function authHeaders() {
+  const secret = accessSecret();
+  if (!secret) {
+    const error = new Error('missing ZHIHU_ACCESS_SECRET');
+    error.code = 'AUTH_NOT_CONFIGURED';
+    throw error;
   }
-  return null;
+  return {
+    Authorization: `Bearer ${secret}`,
+    'X-Request-Timestamp': String(Math.floor(Date.now() / 1000)),
+    'Content-Type': 'application/json'
+  };
 }
 
-function skillCandidates() {
-  const candidates = [];
-  if (process.env.ZHIHU_SKILL_DIR) candidates.push(process.env.ZHIHU_SKILL_DIR);
-  if (process.env.USERPROFILE) candidates.push(path.join(process.env.USERPROFILE, '.codex', 'skills', 'zhihu'));
-  if (process.env.HOME) candidates.push(path.join(process.env.HOME, '.codex', 'skills', 'zhihu'));
-  return [...new Set(candidates)];
-}
-
-async function discoverCliFromSkill() {
-  for (const skillDir of skillCandidates()) {
-    const script = process.platform === 'win32' ? path.join(skillDir, 'scripts', 'run.ps1') : path.join(skillDir, 'scripts', 'run.sh');
-    if (!fs.existsSync(script)) continue;
-    try {
-      const command = process.platform === 'win32' ? 'powershell.exe' : 'bash';
-      const args = process.platform === 'win32' ? ['-ExecutionPolicy', 'Bypass', '-File', script, 'status'] : [script, 'status'];
-      const { stdout } = await execFileAsync(command, args, { env: process.env, timeout: 15000, maxBuffer: 1024 * 1024, windowsHide: true });
-      const status = JSON.parse(stdout.trim());
-      const binaryPath = status?.cli?.binary_path;
-      if (binaryPath && fs.existsSync(binaryPath)) return binaryPath;
-    } catch {
-      // status 检查失败时继续尝试下一个候选，不打印可能包含环境诊断的原始输出。
+async function requestJson(url, init, timeoutMs) {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    const response = await fetch(url, { ...init, signal: controller.signal });
+    const text = await response.text();
+    if (!response.ok) {
+      const error = new Error(`zhihu api http ${response.status}`);
+      error.code = `HTTP_${response.status}`;
+      throw error;
     }
+    try {
+      return JSON.parse(text);
+    } catch {
+      const error = new Error('zhihu api returned non-JSON payload');
+      error.code = 'BAD_PAYLOAD';
+      throw error;
+    }
+  } finally {
+    clearTimeout(timer);
   }
-  return null;
 }
 
-const cli = explicitCli() || await discoverCliFromSkill() || cliName;
+function assertApiCode(payload) {
+  // 搜索类接口用 Code 表示业务错误；直答接口用 error 对象。
+  if (payload && typeof payload.Code === 'number' && payload.Code !== 0) {
+    const error = new Error(`zhihu api code ${payload.Code}`);
+    error.code = `API_${payload.Code}`;
+    throw error;
+  }
+  if (payload && payload.error) {
+    const error = new Error('zhihu api returned error object');
+    error.code = String(payload.error.code || 'API_ERROR');
+    throw error;
+  }
+  return payload;
+}
 
 async function searchZhihu(query) {
-  const { stdout } = await execFileAsync(cli, ['search', 'zhihu', '--query', query, '--count', '8'], { env: process.env, timeout: 30000, maxBuffer: 4 * 1024 * 1024, windowsHide: true });
-  return normalizeSearchResponse(JSON.parse(stdout));
+  const url = new URL(ZHIHU_API_BASE + ZHIHU_SEARCH_PATH);
+  url.searchParams.set('Query', query);
+  url.searchParams.set('Count', '8');
+  const payload = await requestJson(url, { method: 'GET', headers: authHeaders() }, 30000);
+  return normalizeSearchResponse(assertApiCode(payload));
+}
+
+async function callZhida(prompt, timeoutMs = 60000) {
+  const payload = await requestJson(ZHIHU_API_BASE + ZHIHU_CHAT_PATH, {
+    method: 'POST',
+    headers: authHeaders(),
+    body: JSON.stringify({
+      model: ANSWER_MODEL,
+      messages: [{ role: 'user', content: prompt }],
+      stream: false
+    })
+  }, timeoutMs);
+  return assertApiCode(payload);
 }
 
 async function evaluateWithZhida(topic, answer, focus = '') {
@@ -65,9 +105,7 @@ async function evaluateWithZhida(topic, answer, focus = '') {
     '{"items":[{"status":"accurate|correction|missing|difference","title":"知识点","match_terms":["用于检索匹配的关键词"],"user_claim":"用户相关原话或未覆盖","feedback":"友好的判断说明","quote_or_summary":"基于知乎资料的摘要说明","repair_prompt":"可执行的补讲提示"}],"overall_note":"总体说明"}',
     '要求：生成 5 到 8 个最重要知识点；区分事实冲突、关键遗漏和观点差异；没有足够证据时使用 difference；不要编造作者、链接、赞数或逐字引文。'
   ].join('\n');
-  const { stdout } = await execFileAsync(cli, ['answer', '--query', prompt, '--model', process.env.ZHIHU_ANSWER_MODEL || 'zhida-thinking-1p5', '--output', 'json'], { env: process.env, timeout: 60000, maxBuffer: 8 * 1024 * 1024, windowsHide: true });
-  const payload = JSON.parse(stdout);
-  const items = normalizeDirectEvaluation(payload);
+  const items = normalizeDirectEvaluation(await callZhida(prompt));
   if (!items.length) throw new Error('知乎直答未返回可用知识点');
   return items;
 }
@@ -80,8 +118,7 @@ async function learnWithZhida(topic) {
     '格式：{"overview":"用通俗语言说明这是什么以及为什么重要","key_points":[{"title":"核心概念","explanation":"一句话解释","example":"一个具体例子","match_terms":["用于后续检索匹配的关键词"]}],"misconceptions":["常见误区"],"starter_question":"一个用户可以用自己的话回答的自测问题"}',
     '要求：返回 5 到 8 个由浅入深的关键点；每个关键点都要有 explanation；优先讲定义、判断框架、条件和例子；资料不足时明确说待验证，不要武断下结论。'
   ].join('\n');
-  const { stdout } = await execFileAsync(cli, ['answer', '--query', prompt, '--model', process.env.ZHIHU_ANSWER_MODEL || 'zhida-thinking-1p5', '--output', 'json'], { env: process.env, timeout: 60000, maxBuffer: 8 * 1024 * 1024, windowsHide: true });
-  const guide = normalizeLearningGuide(JSON.parse(stdout));
+  const guide = normalizeLearningGuide(await callZhida(prompt));
   if (!guide) throw new Error('知乎直答未返回可用入门指南');
   return guide;
 }
@@ -89,85 +126,88 @@ async function learnWithZhida(topic) {
 function sendJson(res, status, data) { res.writeHead(status, { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store' }); res.end(JSON.stringify(data)); }
 function safeFile(urlPath) { const clean = decodeURIComponent(urlPath === '/' ? '/index.html' : urlPath).replace(/^[/\\]+/, ''); const target = path.resolve(root, clean); const relative = path.relative(root, target); return relative && !relative.startsWith('..') && !path.isAbsolute(relative) ? target : null; }
 
+function readBody(req, limit) {
+  return new Promise((resolve, reject) => {
+    let body = '';
+    req.on('data', (chunk) => {
+      body += chunk;
+      if (body.length > limit) {
+        req.destroy();
+        reject(new Error('body too large'));
+      }
+    });
+    req.on('end', () => resolve(body));
+    req.on('error', reject);
+  });
+}
+
 const server = http.createServer(async (req, res) => {
   if (req.method === 'POST' && req.url === '/api/search') {
-    let body = '';
-    req.on('data', (chunk) => { body += chunk; if (body.length > 10000) req.destroy(); });
-    req.on('end', async () => {
+    try {
+      const query = String(JSON.parse(await readBody(req, 10000)).query || '').trim();
+      if (query.length < 2 || query.length > 120) return sendJson(res, 400, { error: 'query must be 2-120 characters' });
       try {
-        const query = String(JSON.parse(body).query || '').trim();
-        if (query.length < 2 || query.length > 120) return sendJson(res, 400, { error: 'query must be 2-120 characters' });
-        try {
-          const items = await searchZhihu(query);
-          return sendJson(res, 200, { items, source: 'zhihu-search', fallback: false });
-        } catch (error) {
-          console.warn(`[zhihu] 搜索失败：${error.code || error.message}`);
-          return sendJson(res, 502, { error: 'zhihu_search_failed', message: '知乎搜索暂时不可用，请稍后重试。' });
-        }
-      } catch { return sendJson(res, 400, { error: 'invalid JSON body' }); }
-    });
-    return;
+        const items = await searchZhihu(query);
+        return sendJson(res, 200, { items, source: 'zhihu-search', fallback: false });
+      } catch (error) {
+        console.warn(`[zhihu] 搜索失败：${error.code || error.message}`);
+        return sendJson(res, 502, { error: 'zhihu_search_failed', message: '知乎搜索暂时不可用，请稍后重试。' });
+      }
+    } catch { return sendJson(res, 400, { error: 'invalid JSON body' }); }
   }
+
   if (req.method === 'POST' && req.url === '/api/evaluate') {
-    let body = '';
-    req.on('data', (chunk) => { body += chunk; if (body.length > 12000) req.destroy(); });
-    req.on('end', async () => {
+    try {
+      const parsed = JSON.parse(await readBody(req, 12000));
+      const topic = String(parsed.topic || '').trim();
+      const answer = String(parsed.answer || '').trim();
+      if (topic.length < 2 || topic.length > 120 || answer.length < 30 || answer.length > 7000) return sendJson(res, 400, { error: 'topic or answer is outside the allowed range' });
       try {
-        const parsed = JSON.parse(body);
-        const topic = String(parsed.topic || '').trim();
-        const answer = String(parsed.answer || '').trim();
-        if (topic.length < 2 || topic.length > 120 || answer.length < 30 || answer.length > 7000) return sendJson(res, 400, { error: 'topic or answer is outside the allowed range' });
-        try {
-          const items = await evaluateWithZhida(topic, answer);
-          return sendJson(res, 200, { items, source: 'zhihu-answer', fallback: false });
-        } catch (error) {
-          console.warn(`[zhihu] 直答评估失败：${error.code || error.message}`);
-          return sendJson(res, 502, { error: 'zhihu_answer_failed', message: '知乎直答暂时不可用，请稍后重试。' });
-        }
-      } catch { return sendJson(res, 400, { error: 'invalid JSON body' }); }
-    });
-    return;
+        const items = await evaluateWithZhida(topic, answer);
+        return sendJson(res, 200, { items, source: 'zhihu-answer', fallback: false });
+      } catch (error) {
+        console.warn(`[zhihu] 直答评估失败：${error.code || error.message}`);
+        return sendJson(res, 502, { error: 'zhihu_answer_failed', message: '知乎直答暂时不可用，请稍后重试。' });
+      }
+    } catch { return sendJson(res, 400, { error: 'invalid JSON body' }); }
   }
+
   if (req.method === 'POST' && req.url === '/api/learn') {
-    let body = '';
-    req.on('data', (chunk) => { body += chunk; if (body.length > 5000) req.destroy(); });
-    req.on('end', async () => {
+    try {
+      const topic = String(JSON.parse(await readBody(req, 5000)).topic || '').trim();
+      if (topic.length < 2 || topic.length > 120) return sendJson(res, 400, { error: 'topic must be 2-120 characters' });
       try {
-        const topic = String(JSON.parse(body).topic || '').trim();
-        if (topic.length < 2 || topic.length > 120) return sendJson(res, 400, { error: 'topic must be 2-120 characters' });
-        try {
-          const guide = await learnWithZhida(topic);
-          return sendJson(res, 200, { guide, source: 'zhihu-answer', fallback: false });
-        } catch (error) {
-          console.warn(`[zhihu] 入门指南失败：${error.code || error.message}`);
-          return sendJson(res, 502, { error: 'zhihu_learning_failed', message: '知乎直答入门指南暂时不可用，请稍后重试。' });
-        }
-      } catch { return sendJson(res, 400, { error: 'invalid JSON body' }); }
-    });
-    return;
+        const guide = await learnWithZhida(topic);
+        return sendJson(res, 200, { guide, source: 'zhihu-answer', fallback: false });
+      } catch (error) {
+        console.warn(`[zhihu] 入门指南失败：${error.code || error.message}`);
+        return sendJson(res, 502, { error: 'zhihu_learning_failed', message: '知乎直答入门指南暂时不可用，请稍后重试。' });
+      }
+    } catch { return sendJson(res, 400, { error: 'invalid JSON body' }); }
   }
+
   if (req.method === 'POST' && req.url === '/api/reteach') {
-    let body = '';
-    req.on('data', (chunk) => { body += chunk; if (body.length > 12000) req.destroy(); });
-    req.on('end', async () => {
+    try {
+      const parsed = JSON.parse(await readBody(req, 12000));
+      const topic = String(parsed.topic || '').trim();
+      const answer = String(parsed.answer || '').trim();
+      const point = parsed.point || {};
+      if (topic.length < 2 || topic.length > 120 || answer.length < 15 || answer.length > 7000 || !String(point.title || '').trim()) return sendJson(res, 400, { error: 'topic, point and reteach answer are required' });
+      const focus = `只复测这个知识点：“${String(point.title).slice(0, 300)}”。用户补讲如下：<<<${answer.slice(0, 5000)}>>>。只返回一个 items 元素，status 必须是 accurate、correction、missing 或 difference。`;
       try {
-        const parsed = JSON.parse(body);
-        const topic = String(parsed.topic || '').trim();
-        const answer = String(parsed.answer || '').trim();
-        const point = parsed.point || {};
-        if (topic.length < 2 || topic.length > 120 || answer.length < 15 || answer.length > 7000 || !String(point.title || '').trim()) return sendJson(res, 400, { error: 'topic, point and reteach answer are required' });
-        const focus = `只复测这个知识点：“${String(point.title).slice(0, 300)}”。用户补讲如下：<<<${answer.slice(0, 5000)}>>>。只返回一个 items 元素，status 必须是 accurate、correction、missing 或 difference。`;
-        try {
-          const items = await evaluateWithZhida(topic, answer, focus);
-          return sendJson(res, 200, { items: items.slice(0, 1), source: 'zhihu-answer', fallback: false });
-        } catch (error) {
-          console.warn(`[zhihu] 直答复测失败：${error.code || error.message}`);
-          return sendJson(res, 502, { error: 'zhihu_reteach_failed', message: '知乎直答复测暂时不可用，请稍后重试。' });
-        }
-      } catch { return sendJson(res, 400, { error: 'invalid JSON body' }); }
-    });
-    return;
+        const items = await evaluateWithZhida(topic, answer, focus);
+        return sendJson(res, 200, { items: items.slice(0, 1), source: 'zhihu-answer', fallback: false });
+      } catch (error) {
+        console.warn(`[zhihu] 直答复测失败：${error.code || error.message}`);
+        return sendJson(res, 502, { error: 'zhihu_reteach_failed', message: '知乎直答复测暂时不可用，请稍后重试。' });
+      }
+    } catch { return sendJson(res, 400, { error: 'invalid JSON body' }); }
   }
+
+  if (req.method === 'GET' && req.url === '/healthz') {
+    return sendJson(res, 200, { status: 'ok', zhihuConfigured: Boolean(accessSecret()) });
+  }
+
   if (req.method !== 'GET') return sendJson(res, 405, { error: 'method not allowed' });
   const file = safeFile(req.url);
   if (!file || !fs.existsSync(file) || !fs.statSync(file).isFile()) { res.writeHead(404); return res.end('Not found'); }
@@ -176,8 +216,9 @@ const server = http.createServer(async (req, res) => {
   fs.createReadStream(file).pipe(res);
 });
 
-server.listen(port, () => {
-  const resolved = path.isAbsolute(cli) && fs.existsSync(cli);
-  console.log(`答主考官运行于 http://localhost:${port}`);
-  console.log(resolved ? `[zhihu] CLI: ${cli}` : `[zhihu] 未找到可用 CLI（当前解析为 "${cli}"），搜索与直答将不可用。可设置 ZHIHU_CLI_PATH 指定绝对路径。`);
+server.listen(port, host, () => {
+  console.log(`答主考官运行于 http://${host}:${port}`);
+  if (!accessSecret()) {
+    console.warn('[zhihu] 未配置 ZHIHU_ACCESS_SECRET，搜索与直答将返回 502。请在部署平台的函数环境变量中配置。');
+  }
 });
